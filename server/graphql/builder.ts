@@ -3,6 +3,11 @@
 import SchemaBuilder from '@pothos/core'
 import { GraphQLError } from 'graphql'
 import type { Ctx } from '../deps'
+import {
+  CAPABILITIES,
+  hasCapability,
+  type Capability,
+} from '../auth/capabilities'
 
 export const builder = new SchemaBuilder<{
   Context: Ctx
@@ -28,4 +33,13 @@ export function fail(code: string, message: string, details?: unknown): never {
 export function requireAdmin(ctx: Ctx): void {
   if (ctx.user.role !== 'admin')
     fail('FORBIDDEN', 'Solo un admin puede hacer esto.')
+}
+
+/** Admins hold every capability; members need a live grant (see auth/capabilities.ts). */
+export function requireCapability(ctx: Ctx, capability: Capability): void {
+  if (!hasCapability(ctx.db, ctx.user, capability))
+    fail(
+      'FORBIDDEN',
+      `Te falta el permiso "${CAPABILITIES[capability]}". Pedíselo a un admin.`,
+    )
 }

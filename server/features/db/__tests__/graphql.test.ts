@@ -238,7 +238,7 @@ describe('db: row edits', () => {
     expect(codeOf(r)).toBe('BAD_INPUT')
   })
 
-  test('secret columns cannot be written; the mask is ignored', async () => {
+  test('protected columns need db.sensitive and an F2A code; the mask is ignored', async () => {
     const { app } = setup()
     const denied = await gql(
       app,
@@ -246,7 +246,7 @@ describe('db: row edits', () => {
       'mutation($pk: JSON!, $v: JSON!) { dbUpsertRow(table: "usuario", pk: $pk, values: $v) }',
       { pk: { cedula: '1234567' }, v: { contrasena: 'nueva' } },
     )
-    expect(codeOf(denied)).toBe('BAD_INPUT')
+    expect(codeOf(denied)).toBe('F2A_REQUIRED')
     const masked = await gql(
       app,
       ADMIN,
@@ -309,7 +309,7 @@ describe('db: delete', () => {
 })
 
 describe('db: console writes (admin)', () => {
-  test('members cannot execute', async () => {
+  test('members cannot execute without the db.sql grant', async () => {
     const { app } = setup()
     const r = await gql(
       app,

@@ -1,6 +1,9 @@
 // Use cases of the DB editor. Checks identifiers against information_schema, validates values, audits every change
 // (who, table, pk, changed column names; never values), and runs the console through the classifier.
 import { audit } from '../../audit'
+import { hasCapability } from '../../auth/capabilities'
+import { checkOtp } from '../../auth/f2a'
+import { loadKey } from '../../auth/secretbox'
 import type { Ctx } from '../../deps'
 import { clampPage } from '../../graphql/limits'
 import {
@@ -134,9 +137,55 @@ export function rowLabel(table: string, cols: ColumnInfo[], pk: Row): string {
     .join(',')}`
 }
 
+/** Writes a protected column with a real value (the mask means untouched). Such writes pass the F2A gate first. */
+export function touchesSecret(cols: ColumnInfo[], values: Row): boolean {
+  return cols.some(
+    (c) => c.secret && c.name in values && values[c.name] !== MASK,
+  )
+}
+
 /**
- * Turns the values the UI sends into the writes to do. Drops the mask (an untouched secret), refuses secrets, generated
- * columns and unknown names, and validates each value against its column kind and enum.
+ * Protected columns move only with the db.sensitive capability (admins hold it) and a current F2A code. Runs before
+ * anything else is read or written, so a refusal says nothing about the rows.
+ */
+export function sensitiveGate(
+  ctx: Ctx,
+  touches: boolean,
+  otp: string | null | undefined,
+): void {
+  if (!touches) return
+  if (!hasCapability(ctx.db, ctx.user, 'db.sensitive'))
+    throw new DbError(
+      'FORBIDDEN',
+      'Te falta el permiso "Editar columnas protegidas". Pedíselo a un admin.',
+    )
+  const check = checkOtp(
+    ctx.db,
+    loadKey(ctx.config.keyFile),
+    ctx.user.id,
+    (otp ?? '').trim(),
+  )
+  if (check === 'ok') return
+  if (check === 'not_enabled')
+    throw new DbError(
+      'F2A_REQUIRED',
+      'Para editar datos protegidos activá F2A en la sección Acceso.',
+    )
+  if (check === 'unavailable')
+    throw new DbError(
+      'F2A_UNAVAILABLE',
+      'F2A no está disponible: al server le falta la clave de cifrado (TABULA_KEY_FILE).',
+    )
+  throw new DbError(
+    'F2A_INVALID',
+    'Código F2A incorrecto, vacío o ya usado. Esperá el próximo código.',
+  )
+}
+
+/**
+ * Turns the values the UI sends into the writes to do. Drops the mask (an untouched secret), refuses generated
+ * columns and unknown names, and validates each value against its column kind and enum. Protected columns are
+ * accepted here; the caller has already run `sensitiveGate` for them.
  */
 export function checkValues(cols: ColumnInfo[], values: Row): Row {
   const out: Row = {}
@@ -145,13 +194,7 @@ export function checkValues(cols: ColumnInfo[], values: Row): Row {
     assertKnown(name, [...byName.keys()], 'la columna')
     const c = byName.get(name) as ColumnInfo
     const raw = values[name]
-    if (c.secret) {
-      if (raw === MASK) continue
-      throw new DbError(
-        'BAD_INPUT',
-        'Las columnas protegidas no se editan desde el panel.',
-      )
-    }
+    if (c.secret && raw === MASK) continue
     if (c.extra && /GENERATED/i.test(c.extra))
       throw new DbError('BAD_INPUT', `${name} se calcula sola y no se escribe.`)
     if (raw === null || raw === undefined) {
@@ -205,8 +248,11 @@ export async function upsertRow(
   table: string,
   pk: Row,
   values: Row,
+  otp?: string | null,
 ): Promise<'insert' | 'update' | 'none'> {
   const { name, cols } = await tableColumns(client, table)
+  const sensitive = touchesSecret(cols, values)
+  sensitiveGate(ctx, sensitive, otp)
   const key = keyOf(cols, pk)
   const writes = checkValues(cols, values)
   for (const k of pkNames(cols)) {
@@ -224,7 +270,7 @@ export async function upsertRow(
       ctx,
       'db.row.insert',
       target,
-      { table: name, pk: key, changed: Object.keys(writes) },
+      { table: name, pk: key, changed: Object.keys(writes), sensitive },
       () => client.insert(name, cols, { ...key, ...writes }),
     )
     return 'insert'
@@ -235,7 +281,7 @@ export async function upsertRow(
     ctx,
     'db.row.update',
     target,
-    { table: name, pk: key, changed: Object.keys(changes) },
+    { table: name, pk: key, changed: Object.keys(changes), sensitive },
     () => client.update(name, cols, key, changes),
   )
   return 'update'
@@ -246,14 +292,17 @@ export async function insertRow(
   client: DbClient,
   table: string,
   values: Row,
+  otp?: string | null,
 ): Promise<void> {
   const { name, cols } = await tableColumns(client, table)
+  const sensitive = touchesSecret(cols, values)
+  sensitiveGate(ctx, sensitive, otp)
   const writes = checkValues(cols, values)
   await audited(
     ctx,
     'db.row.insert',
     name,
-    { table: name, changed: Object.keys(writes) },
+    { table: name, changed: Object.keys(writes), sensitive },
     () => client.insert(name, cols, writes),
   )
 }
@@ -305,12 +354,16 @@ export async function query(
   return { columns: rs.columns, rows, truncated, verb: c.verb }
 }
 
-/** Console write. Admin check and confirmation are the caller's; this dumps first and fails closed if the dump fails. */
+/**
+ * Console write. The db.sql capability is the caller's check; a statement that names a protected column also needs
+ * db.sensitive and an F2A code. This gates first, then dumps, and fails closed if the dump fails.
+ */
 export async function execute(
   ctx: Ctx,
   client: DbClient,
   sql: string,
   target: DumpTarget,
+  otp?: string | null,
 ): Promise<ExecResult> {
   const c = classifyStatement(sql)
   if (!c.ok) throw new DbError('BAD_INPUT', c.reason)
@@ -319,6 +372,8 @@ export async function execute(
       'BAD_INPUT',
       'Esta sentencia es de lectura: usá la consola de lectura.',
     )
+  const sensitive = c.idents.some((i) => isSecretName(i))
+  sensitiveGate(ctx, sensitive, otp)
 
   const dumpFile = dumpFileName(target.now(), target.dbName)
   await writeDump(target.dir, dumpFile, await client.dump())
@@ -328,7 +383,7 @@ export async function execute(
     ctx,
     'db.execute',
     c.verb,
-    { verb: c.verb, sql: c.redacted, dump: dumpFile },
+    { verb: c.verb, sql: c.redacted, dump: dumpFile, sensitive },
     () => client.raw(c.sql, { write: true, limit: QUERY_LIMIT }),
   )
   return { verb: c.verb, dumpFile }

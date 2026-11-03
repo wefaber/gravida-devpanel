@@ -6,8 +6,10 @@ Todas las secciones requieren sesión (tailnet o token) y todo cambio de estado 
 ## Base (v0.1.0)
 
 - **Acceso**: tailnet por whois (nginx pasa la IP del dispositivo, tailscaled dice de quién es) contra la lista `TABULA_USERS`, o token personal (`tbl_...`, guardado como sha256) que abre una sesión por cookie. Ver [ADR 0002](adr/0002-tailnet-whois-tokens.md).
-- **Roles**: `admin` (Faku) y `member` (Pablo, Jean). Hoy ambos ven todo; lo destructivo y las aprobaciones de Ether son solo `admin`.
+- **Roles**: `admin` (Faku) y `member` (Pablo, Jean). Un admin tiene todos los permisos. Un member necesita un permiso concedido por un admin (ver Acceso). Las aprobaciones de Ether son solo `admin`.
 - **Sección Acceso**: crear y revocar tokens propios (admin revoca los de cualquiera). Revocar cierra las sesiones abiertas con ese token.
+- **Permisos (v0.6.13)**: el admin da y quita por usuario `db.sql` (escribir en la consola SQL) y `db.sensitive` (editar columnas protegidas, con F2A). Cada cambio queda en la auditoría (`access.grant`, `access.revoke`).
+- **Doble factor, F2A (v0.6.13)**: TOTP (RFC 6238) que cada uno activa con su app de autenticación desde Acceso. Los secretos se guardan cifrados (AES-256-GCM) con la clave de `TABULA_KEY_FILE`; sin esa clave F2A no se activa y las columnas protegidas no se editan. Un código sirve una sola vez. El admin puede restablecer el F2A de alguien que perdió el celular.
 - **Atajos**: `1` a `7` cambian de sección, `[` y `]` van a la anterior o siguiente, `?` lista los atajos.
 - **Fallas a la vista**: el header lista los módulos con problemas y qué se detectó (Podman, migraciones, falta de `DB_PASSWORD`, el token de GitHub de una organización o `DEEPSEEK_API_KEY`); una sección que rompe en el navegador muestra su error sin tumbar el resto.
 - **Vivo**: eventos por SSE (`/sse/:channel`) para estado, llamadas y respuestas de Ether.
@@ -37,7 +39,8 @@ Todas las secciones requieren sesión (tailnet o token) y todo cambio de estado 
 
 - Lista de tablas con conteo de filas, esquema de columnas y tabla paginada con filtro.
 - **Editar, insertar y borrar** filas por clave primaria. Valida cada valor contra el tipo y los enum de la columna. Las columnas protegidas se muestran enmascaradas y no se editan; las generadas tampoco. Borrar exige tipear el nombre de la fila (`ubicacion#1`).
-- **Consola SQL**: lectura por defecto (hasta 500 filas, `truncated` si hay más). Escritura solo para admin, con toggle y confirmación; antes de ejecutar toma un dump y si el dump falla no escribe. Se guardan los últimos 10 en `data/dumps/`.
+- **Consola SQL**: lectura por defecto (hasta 500 filas, `truncated` si hay más). Escritura con el permiso `db.sql` (admin lo tiene siempre), con toggle y confirmación; antes de ejecutar toma un dump y si el dump falla no escribe. Se guardan los últimos 10 en `data/dumps/`. Una sentencia que nombra una columna protegida (contraseña, token, hash) pide además `db.sensitive` y el código F2A.
+- **Columnas protegidas**: se muestran enmascaradas. Editarlas (fila o consola) pide `db.sensitive` y un código F2A vigente; el valor no entra al log.
 - Los identificadores se validan contra el esquema real; el SQL de escritura se audita con los secretos redactados.
 
 ## Git (v0.5.0)

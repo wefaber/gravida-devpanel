@@ -41,15 +41,16 @@ Para que varias features se escriban en paralelo sin pisarse:
   Dominio puro (sin DB, red ni reloj; `now` se pasa) con tests en `__tests__/` de la feature.
 - **Web**: `src/features/<n>/index.tsx` exporta `default` el componente de la sección. `src/features/registry.ts` ya la carga.
 - **Migraciones**: archivo propio `server/db/migrations/NNNN_<n>.sql`. Reservados: containers 0010, apis 0020, calls 0030,
-  db 0040, git 0050, ether 0060, prefs 0080. Las tablas llevan el prefijo de la feature.
+  db 0040, git 0050, ether 0060, prefs 0080, access 0100. Las tablas llevan el prefijo de la feature.
 - **Compartido** (no se edita salvo necesidad): `deps.ts`, `graphql/builder.ts`, `bus.ts`, `adapters/*`, `src/app/*`.
 - **Tiempo real**: `deps.bus.emit('<canal>', '<evento>', datos)` en el server; `follow('<canal>', {...})` en la web.
 - **Auditoría**: toda mutación llama `audit(ctx.db, ctx.user, 'feature.accion', objetivo, detalle)`.
-- **Roles**: `requireAdmin(ctx)` para lo que solo hace un admin.
+- **Roles**: `requireAdmin(ctx)` para lo que solo hace un admin. Permisos por usuario: `requireCapability(ctx, 'db.sql')`
+  (lista en `server/auth/capabilities.ts`; un admin los tiene todos). Datos protegidos: `checkOtp` de `server/auth/f2a.ts`.
 
 ## Config (env)
 
-`TABULA_USERS` (`login:rol:Nombre,...`), `PORT`, `DATA_DIR`, `PODMAN_SOCKET`, `NEXUS_PROJECT` (`nexus-test`), `NEXUS_FRONT_URL`
+`TABULA_USERS` (`login:rol:Nombre,...`), `TABULA_KEY_FILE` (archivo con 32 bytes en base64 que cifra los secretos del F2A; sin él F2A falla cerrado), `PORT`, `DATA_DIR`, `PODMAN_SOCKET`, `NEXUS_PROJECT` (`nexus-test`), `NEXUS_FRONT_URL`
 (`http://127.0.0.1:18080`), `NEXUS_STATE_FILE`, `DB_NAME`/`DB_USER`/`DB_PASSWORD`, `GITHUB_REPO`, un token de GitHub por organización (`GITHUB_TOKEN_NEXUS` para `nexus-iti`, `GITHUB_TOKEN_WEFABER` para `wefaber`; `GITHUB_TOKEN` sigue valiendo como el de nexus-iti),
 `DEEPSEEK_API_KEY`/`DEEPSEEK_URL`/`DEEPSEEK_MODEL` (default `deepseek-flash`) y `ETHER_REPOS` (default `nexus-iti/gravida,nexus-iti/docs`), `TABULA_DOMAIN` (`tabula.wefaber.net`), `TAILSCALE_SOCKET`, `TABULA_TRUST_SERVE_HEADER` (solo si hubiera Tailscale Serve adelante). En el VPS vienen de `~/deploy/env/tabula.env`. Local: `TABULA_FIXTURES=1`.
 
