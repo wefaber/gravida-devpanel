@@ -4,7 +4,7 @@ import { Button, Chip, EmptyState, Field, Tile } from '@wefaber/ui'
 import { useDeferredValue, useEffect, useState } from 'react'
 import { gql } from '@/lib/api'
 import {
-  ME,
+  MY_ACCESS,
   ROWS,
   TABLES,
   type Cell,
@@ -21,9 +21,12 @@ const errorText = (err: unknown) =>
   err instanceof Error ? err.message : 'Error desconocido.'
 
 export default function Section() {
-  const me = useQuery({
-    queryKey: ['db', 'me'],
-    queryFn: () => gql<{ me: { role: string } }>(ME),
+  const access = useQuery({
+    queryKey: ['db', 'access'],
+    queryFn: () =>
+      gql<{ myAccess: { capabilities: string[]; f2aEnabled: boolean } }>(
+        MY_ACCESS,
+      ),
   })
   const tables = useQuery({
     queryKey: ['db', 'tables'],
@@ -32,7 +35,9 @@ export default function Section() {
   const [picked, setPicked] = useState<string | null>(null)
   const names = tables.data?.dbTables.map((t) => t.name) ?? []
   const table = picked && names.includes(picked) ? picked : (names[0] ?? null)
-  const isAdmin = me.data?.me.role === 'admin'
+  const capabilities = access.data?.myAccess.capabilities ?? []
+  const canWrite = capabilities.includes('db.sql')
+  const canSensitive = capabilities.includes('db.sensitive')
 
   if (tables.isPending)
     return <p className="p-2 text-muted">Cargando tablas…</p>
@@ -63,14 +68,20 @@ export default function Section() {
         ))}
       </div>
 
-      <RowsTile key={table} table={table} />
+      <RowsTile key={table} table={table} canSensitive={canSensitive} />
 
-      <Console isAdmin={isAdmin} />
+      <Console canWrite={canWrite} />
     </div>
   )
 }
 
-function RowsTile({ table }: { table: string }) {
+function RowsTile({
+  table,
+  canSensitive,
+}: {
+  table: string
+  canSensitive: boolean
+}) {
   const [page, setPage] = useState(1)
   const [term, setTerm] = useState('')
   const filter = useDeferredValue(term.trim())
@@ -251,6 +262,7 @@ function RowsTile({ table }: { table: string }) {
           pk={data.pk}
           columns={data.columns}
           editing={editing}
+          canSensitive={canSensitive}
           onClose={() => setEditing(null)}
         />
       ) : null}

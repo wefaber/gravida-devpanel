@@ -22,13 +22,22 @@ interface Props {
   pk: string[]
   columns: Column[]
   editing: Editing
+  /** db.sensitive (admins hold it): protected columns can be written, with an F2A code. */
+  canSensitive: boolean
   onClose: () => void
 }
 
 const errorText = (err: unknown) =>
   err instanceof ApiError ? err.message : 'Error desconocido.'
 
-export function RowDock({ table, pk, columns, editing, onClose }: Props) {
+export function RowDock({
+  table,
+  pk,
+  columns,
+  editing,
+  canSensitive,
+  onClose,
+}: Props) {
   const qc = useQueryClient()
   const isEdit = editing.mode === 'edit'
   const base: Row = isEdit ? editing.row : {}
@@ -36,30 +45,41 @@ export function RowDock({ table, pk, columns, editing, onClose }: Props) {
     Object.fromEntries(columns.map((c) => [c.name, base[c.name] ?? null])),
   )
   const [nulls, setNulls] = useState<Record<string, boolean>>({})
+  // Only protected columns the user actually changed are sent; the rest keep their stored value.
+  const [touched, setTouched] = useState<Record<string, boolean>>({})
+  const [otp, setOtp] = useState('')
   const [confirm, setConfirm] = useState('')
   const [confirmError, setConfirmError] = useState<string | null>(null)
 
   const refresh = () => qc.invalidateQueries({ queryKey: ['db'] })
+  const hasSecrets = columns.some((c) => c.secret)
+  const touchesSecret = Object.values(touched).some(Boolean)
 
   const save = useMutation({
     mutationFn: (): Promise<unknown> => {
       const writable = Object.fromEntries(
         columns
-          .filter((c) => c.editable && !c.secret)
+          .filter((c) => c.editable && (!c.secret || touched[c.name]))
           .map((c) => [
             c.name,
             nulls[c.name] ? null : (values[c.name] ?? null),
           ]),
       )
+      const code = touchesSecret ? otp.trim() || null : null
       if (isEdit) {
         const key = Object.fromEntries(pk.map((k) => [k, base[k] ?? null]))
         return gql<{ dbUpsertRow: string }>(UPSERT, {
           table,
           pk: key,
           values: writable,
+          otp: code,
         })
       }
-      return gql<{ dbInsertRow: boolean }>(INSERT, { table, values: writable })
+      return gql<{ dbInsertRow: boolean }>(INSERT, {
+        table,
+        values: writable,
+        otp: code,
+      })
     },
     onSuccess: () => {
       void refresh()
@@ -115,12 +135,38 @@ export function RowDock({ table, pk, columns, editing, onClose }: Props) {
               key={c.name}
               column={c}
               isNew={!isEdit}
+              canSensitive={canSensitive}
               value={values[c.name] ?? null}
               isNull={!!nulls[c.name]}
-              onChange={(v) => setValues((prev) => ({ ...prev, [c.name]: v }))}
-              onNull={(on) => setNulls((prev) => ({ ...prev, [c.name]: on }))}
+              onChange={(v) => {
+                setValues((prev) => ({ ...prev, [c.name]: v }))
+                if (c.secret)
+                  setTouched((prev) => ({ ...prev, [c.name]: true }))
+              }}
+              onNull={(on) => {
+                setNulls((prev) => ({ ...prev, [c.name]: on }))
+                if (c.secret)
+                  setTouched((prev) => ({ ...prev, [c.name]: true }))
+              }}
             />
           ))}
+
+          {canSensitive && hasSecrets ? (
+            <div className="flex flex-col gap-1">
+              <label htmlFor="db-otp" className="text-meta text-muted">
+                Código F2A (solo si cambiás una columna protegida)
+              </label>
+              <Field
+                id="db-otp"
+                density="compact"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+              />
+            </div>
+          ) : null}
 
           <div
             aria-live="polite"
@@ -201,6 +247,7 @@ export function RowDock({ table, pk, columns, editing, onClose }: Props) {
 function FieldRow({
   column: c,
   isNew,
+  canSensitive,
   value,
   isNull,
   onChange,
@@ -208,6 +255,7 @@ function FieldRow({
 }: {
   column: Column
   isNew: boolean
+  canSensitive: boolean
   value: Cell
   isNull: boolean
   onChange: (v: Cell) => void
@@ -215,9 +263,13 @@ function FieldRow({
 }) {
   const id = `db-col-${c.name}`
   const locked =
-    c.secret || !c.editable || (isNew && /auto_increment/i.test(c.extra))
+    (c.secret && !canSensitive) ||
+    !c.editable ||
+    (isNew && /auto_increment/i.test(c.extra))
   const hint = c.secret
-    ? 'Columna protegida: no se muestra ni se edita desde el panel.'
+    ? canSensitive
+      ? 'Protegida: escribí un valor nuevo para reemplazarla. Pide código F2A.'
+      : 'Columna protegida: se muestra enmascarada. Editarla pide el permiso db.sensitive.'
     : !c.editable
       ? c.key === 'PRI'
         ? 'Clave primaria: no se cambia desde la fila.'
@@ -264,9 +316,11 @@ function FieldRow({
       ) : (
         <Field
           id={id}
-          value={c.secret ? MASK : isNull ? '' : (value ?? '')}
+          type={c.secret ? 'password' : 'text'}
+          autoComplete={c.secret ? 'new-password' : 'off'}
+          value={isNull || value === MASK ? '' : (value ?? '')}
           disabled={locked || isNull}
-          placeholder={isNull ? 'NULL' : undefined}
+          placeholder={isNull ? 'NULL' : value === MASK ? MASK : undefined}
           aria-describedby={hint ? `${id}-hint` : undefined}
           onChange={(e) => onChange(e.target.value)}
         />

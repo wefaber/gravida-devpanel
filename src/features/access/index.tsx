@@ -1,8 +1,11 @@
-// Acceso: own tokens, and the audit log of everything that changed something.
+// Acceso: my F2A, the grants an admin gives (admin only), own tokens, and the audit log of everything that changed something.
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, EmptyState, Field, Tile } from '@wefaber/ui'
 import { useState } from 'react'
 import { gql } from '@/lib/api'
+import { MINE, type MyAccess } from './api'
+import { F2aTile } from './F2a'
+import { GrantsTile } from './Grants'
 
 interface TokenRow {
   id: number
@@ -60,6 +63,10 @@ const when = (iso: string | null) =>
 
 export default function Access() {
   const qc = useQueryClient()
+  const mine = useQuery({
+    queryKey: ['access', 'mine'],
+    queryFn: () => gql<{ me: { role: string }; myAccess: MyAccess }>(MINE),
+  })
   const data = useQuery({
     queryKey: ['access'],
     queryFn: () => gql<{ tokens: TokenRow[]; audit: AuditRow[] }>(ACCESS),
@@ -83,6 +90,9 @@ export default function Access() {
 
   return (
     <div className="flex flex-col gap-4">
+      {mine.data ? <F2aTile mine={mine.data.myAccess} /> : null}
+      {mine.data?.me.role === 'admin' ? <GrantsTile /> : null}
+
       <Tile title="Tokens de acceso">
         <form
           className="mb-3 flex flex-wrap items-center gap-2"

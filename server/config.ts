@@ -47,6 +47,8 @@ export interface Config {
   }
   /** Ask Ether talks straight to DeepSeek (OpenAI-compatible chat). `repos` are the GitHub repos it reads for context. */
   ether: { url: string; key: string; model: string; repos: string[] }
+  /** 32-byte key (base64, in a file) that seals the F2A seeds at rest. Empty: F2A is unavailable (fails closed). */
+  keyFile: string
 }
 
 /** Env var of each GitHub organization's token. GITHUB_TOKEN alone still works for nexus-iti. */
@@ -135,5 +137,6 @@ export function loadConfig(
         .map((r) => r.trim())
         .filter(Boolean),
     },
+    keyFile: env.TABULA_KEY_FILE ?? '',
   }
 }
