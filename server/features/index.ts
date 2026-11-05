@@ -1,5 +1,6 @@
 // Every feature folder, in nav order. Each one registers its GraphQL fields on import and may start jobs.
 import type { Feature } from '../deps'
+import { feature as access } from './access'
 import { feature as apis } from './apis'
 import { feature as calls } from './calls'
 import { feature as containers } from './containers'
@@ -18,4 +19,5 @@ export const features: Feature[] = [
   ether,
   prefs,
   onboarding,
+  access,
 ]

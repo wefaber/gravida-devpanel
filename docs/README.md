@@ -13,6 +13,7 @@ URL: https://tabula.wefaber.net (vhost nginx en la IP del tailnet).
 | Preferencias               | v0.6.4  | hecho  |
 
 - [Funcionalidades](features.md) Qué hace cada sección
+- [Fixes 2026-11-02 · v0.6.13](fixes-2026-11-02-v0.6.13/README.md) Permisos SQL por usuario y F2A para datos protegidos
 - [Fixes 2026-10-29 · v0.6.7](fixes-2026-10-29-v0.6.7/README.md) Onboarding con bienvenida, secciones, utilidades y progreso
 - [Fixes 2026-10-28 · v0.6.2](fixes-2026-10-28-v0.6.2/README.md) Atajos, módulos con fallas, loader y Ask Ether
 - [ADR 0001](adr/0001-host-process-libpod.md) Proceso en el host y Podman por el socket

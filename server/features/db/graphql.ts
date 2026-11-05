@@ -1,6 +1,6 @@
 // GraphQL fields of db. Registered on the shared builder; the logic lives in service.ts.
 import { join } from 'node:path'
-import { builder, fail, requireAdmin } from '../../graphql/builder'
+import { builder, fail, requireCapability } from '../../graphql/builder'
 import type { Ctx } from '../../deps'
 import type { ColumnInfo, Row, TableInfo } from './columns'
 import { mariadbClient, type DbClient } from './client'
@@ -157,6 +157,10 @@ builder.mutationFields((t) => ({
       table: t.arg.string({ required: true }),
       pk: t.arg({ type: 'JSON', required: true }),
       values: t.arg({ type: 'JSON', required: true }),
+      otp: t.arg.string({
+        description:
+          'F2A code. Required only when the values include a protected column.',
+      }),
     },
     resolve: (_root, args, ctx) =>
       guard(() =>
@@ -166,6 +170,7 @@ builder.mutationFields((t) => ({
           args.table,
           args.pk as Row,
           args.values as Row,
+          args.otp,
         ),
       ),
   }),
@@ -173,10 +178,20 @@ builder.mutationFields((t) => ({
     args: {
       table: t.arg.string({ required: true }),
       values: t.arg({ type: 'JSON', required: true }),
+      otp: t.arg.string({
+        description:
+          'F2A code. Required only when the values include a protected column.',
+      }),
     },
     resolve: async (_root, args, ctx) => {
       await guard(() =>
-        insertRow(ctx, clientFor(ctx), args.table, args.values as Row),
+        insertRow(
+          ctx,
+          clientFor(ctx),
+          args.table,
+          args.values as Row,
+          args.otp,
+        ),
       )
       return true
     },
@@ -205,20 +220,21 @@ builder.mutationFields((t) => ({
   dbExecute: t.field({
     type: ExecRef,
     description:
-      'Admin only. Runs one write statement after a dump. `confirm` must be true.',
+      'Needs db.sql. Runs one write statement after a dump; `confirm` must be true. A statement that names a protected column also needs db.sensitive and `otp`.',
     args: {
       sql: t.arg.string({ required: true }),
       confirm: t.arg.boolean({ required: true }),
+      otp: t.arg.string({ description: 'F2A code, for protected columns.' }),
     },
     resolve: (_root, args, ctx) => {
-      requireAdmin(ctx)
+      requireCapability(ctx, 'db.sql')
       if (!args.confirm)
         fail(
           'CONFIRM_REQUIRED',
           'Confirmá la ejecución antes de correr la sentencia.',
         )
       return guard(() =>
-        execute(ctx, clientFor(ctx), args.sql, dumpTarget(ctx)),
+        execute(ctx, clientFor(ctx), args.sql, dumpTarget(ctx), args.otp),
       )
     },
   }),

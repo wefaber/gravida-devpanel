@@ -44,10 +44,11 @@ export interface ExecResult {
   dumpFile: string
 }
 
-export const ME = /* GraphQL */ `
+export const MY_ACCESS = /* GraphQL */ `
   {
-    me {
-      role
+    myAccess {
+      capabilities
+      f2aEnabled
     }
   }
 `
@@ -87,14 +88,19 @@ export const ROWS = /* GraphQL */ `
 `
 
 export const UPSERT = /* GraphQL */ `
-  mutation DbUpsertRow($table: String!, $pk: JSON!, $values: JSON!) {
-    dbUpsertRow(table: $table, pk: $pk, values: $values)
+  mutation DbUpsertRow(
+    $table: String!
+    $pk: JSON!
+    $values: JSON!
+    $otp: String
+  ) {
+    dbUpsertRow(table: $table, pk: $pk, values: $values, otp: $otp)
   }
 `
 
 export const INSERT = /* GraphQL */ `
-  mutation DbInsertRow($table: String!, $values: JSON!) {
-    dbInsertRow(table: $table, values: $values)
+  mutation DbInsertRow($table: String!, $values: JSON!, $otp: String) {
+    dbInsertRow(table: $table, values: $values, otp: $otp)
   }
 `
 
@@ -116,8 +122,8 @@ export const CONSOLE = /* GraphQL */ `
 `
 
 export const EXECUTE = /* GraphQL */ `
-  mutation DbExecute($sql: String!) {
-    dbExecute(sql: $sql, confirm: true) {
+  mutation DbExecute($sql: String!, $otp: String) {
+    dbExecute(sql: $sql, confirm: true, otp: $otp) {
       verb
       dumpFile
     }
