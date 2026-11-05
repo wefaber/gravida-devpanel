@@ -1,12 +1,47 @@
 // My second factor. Enroll once in an authenticator app; sensitive writes then ask for a fresh code.
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button, Field, Tile } from '@wefaber/ui'
-import { useState } from 'react'
+import QRCode from 'qrcode'
+import { useEffect, useState } from 'react'
 import { ApiError, gql } from '@/lib/api'
 import { CONFIRM, ENROLL, type Enrollment, type MyAccess } from './api'
 
 const errorText = (err: unknown) =>
   err instanceof ApiError ? err.message : 'Error desconocido.'
+
+/** QR of the otpauth URI, rendered locally: the secret never leaves the browser. Falls back to nothing if it fails; the key stays visible. */
+function EnrollQr({ uri }: { uri: string }) {
+  const [src, setSrc] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    QRCode.toDataURL(uri, {
+      width: 224,
+      margin: 2,
+      color: { dark: '#000000', light: '#ffffff' },
+    })
+      .then((url) => {
+        if (alive) setSrc(url)
+      })
+      .catch(() => {
+        if (alive) setSrc(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [uri])
+
+  if (!src) return null
+  return (
+    <img
+      src={src}
+      alt="Código QR para activar F2A en tu app de autenticación"
+      width={224}
+      height={224}
+      className="rounded-card"
+    />
+  )
+}
 
 export function F2aTile({ mine }: { mine: MyAccess }) {
   const qc = useQueryClient()
@@ -44,10 +79,11 @@ export function F2aTile({ mine }: { mine: MyAccess }) {
       {enrollment ? (
         <div className="flex flex-col gap-3">
           <p className="text-body">
-            Cargá esta clave en tu app de autenticación (Google Authenticator,
+            Escaneá este QR con tu app de autenticación (Google Authenticator,
             Authy, 1Password…) y escribí el código de 6 dígitos para activarla.
             La clave se muestra una sola vez.
           </p>
+          <EnrollQr uri={enrollment.uri} />
           <code className="select-all break-all rounded-card bg-surface-2 p-3 font-mono">
             {enrollment.secret}
           </code>
