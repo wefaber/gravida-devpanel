@@ -61,11 +61,22 @@ const MAX_STATEMENT_SECONDS = 10
 const rowOf = (columns: string[], values: (string | null)[]): Row =>
   Object.fromEntries(columns.map((c, i) => [c, values[i] ?? null]))
 
-/** First line of the server's stderr, without the client's `ERROR 1064 (42000) at line 1:` prefix. */
+/**
+ * The server's error from stderr, without the client's `ERROR 1064 (42000) at line 1:` prefix. The client can echo the
+ * statement between lines of dashes before the error, so the first line is not always the message: take the `ERROR`
+ * line, else the first line that is not a separator.
+ */
 export function serverMessage(stderr: string): string {
-  const line = stderr.split('\n').find((l) => l.trim()) ?? 'error desconocido'
+  const lines = stderr
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l !== '')
+  const line =
+    lines.find((l) => /^ERROR \d+/.test(l)) ??
+    lines.find((l) => !/^-+$/.test(l)) ??
+    'error desconocido'
   return line
-    .replace(/^ERROR \d+ \([0-9A-Z]+\) at line \d+: /, '')
+    .replace(/^ERROR \d+ \([0-9A-Z]+\)(?: at line \d+)?: /, '')
     .slice(0, 300)
 }
 
